@@ -1,0 +1,48 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+build/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# local env files
+.env
+.env*.local
+
+# prisma
+prisma/migrations/dev.db
+prisma/migrations/dev.db-journal
+prisma/dev.db
+prisma/dev.db-journal
+*.db
+*.db-journal
+
+# 运行时用户上传的互动附件（本地存储，不入库）
+uploads/
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# AI端（AI服务 / python_service）是独立 git 仓库，勿纳入前端仓库
+python_service/
+
+# 回滚/清理时产生的旧 .next 备份目录（webpack 缓存垃圾，勿入库）
+.next_bak_*/

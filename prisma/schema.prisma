@@ -1,0 +1,559 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+//  Enums
+// ============================================================
+
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  MEMBER
+}
+
+enum CustomerStatus {
+  PROSPECT
+  ACTIVE
+  DORMANT
+  LOST
+}
+
+enum OpportunityStage {
+  QUALIFICATION
+  NEEDS_ANALYSIS
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum AICallStatus {
+  SUCCESS
+  FAILED
+  TIMEOUT
+}
+
+// ============================================================
+//  Auth (NextAuth.js v5)
+// ============================================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================================
+//  Tenant & User
+// ============================================================
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  plan      Plan     @default(FREE)
+  maxUsers  Int      @default(5)
+  aiQuota   Int      @default(1000)
+  aiUsed    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users           User[]
+  customers       Customer[]
+  aiCalls         AICall[]
+  promptTemplates PromptTemplate[]
+  nineGrids       NineGrid[]
+  painChains      PainChain[]
+  battlePlans     BattlePlan[]
+  workReviews     WorkReview[]
+  projects           Project[]
+  projectModules     ProjectModuleData[]
+  projectInteractions ProjectInteraction[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(MEMBER)
+  avatar       String?
+  oceanProfile String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  accounts    Account[]
+  sessions    Session[]
+  customers   Customer[]
+  aiCalls     AICall[]
+  nineGrids   NineGrid[]
+  painChains  PainChain[]
+  actionPlans ActionPlan[]
+  battlePlans BattlePlan[]
+  workReviews WorkReview[]
+
+  @@index([tenantId])
+}
+
+// ============================================================
+//  CRM Base Data
+// ============================================================
+
+model Customer {
+  id          String         @id @default(cuid())
+  tenantId    String
+  ownerId     String
+  name        String
+  industry    String?
+  companySize String?
+  website     String?
+  description String?
+  status      CustomerStatus @default(PROSPECT)
+  metadata    String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id])
+  owner            User                   @relation(fields: [ownerId], references: [id])
+  contacts         Contact[]
+  opportunities    Opportunity[]
+  nineGrids        NineGrid[]
+  painChains       PainChain[]
+  valueProps       ValueProposition[]
+  competitors      CompetitiveAnalysis[]
+  decisionMaps     DecisionMap[]
+  relationshipMaps RelationshipMap[]
+  salesPaths       SalesPath[]
+  actionPlans      ActionPlan[]
+  customerInsights CustomerInsight[]
+
+  @@index([tenantId])
+  @@index([ownerId])
+}
+
+model Contact {
+  id         String   @id @default(cuid())
+  customerId String
+  name       String
+  title      String?
+  email      String?
+  phone      String?
+  role       String?
+  influence  Int?
+  sentiment  String?
+  metadata   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model Opportunity {
+  id          String           @id @default(cuid())
+  customerId  String
+  name        String
+  amount      Float?
+  stage       OpportunityStage @default(QUALIFICATION)
+  closeDate   DateTime?
+  probability Int?
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+// ============================================================
+//  SSM Ten Tools
+// ============================================================
+
+model NineGrid {
+  id         String   @id @default(cuid())
+  tenantId   String
+  customerId String
+  userId     String
+  title      String
+  gridData   String
+  status     String   @default("draft")
+  version    Int      @default(1)
+  metadata   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([customerId])
+}
+
+model PainChain {
+  id         String   @id @default(cuid())
+  tenantId   String
+  customerId String
+  userId     String
+  title      String
+  painData   String
+  status     String   @default("draft")
+  version    Int      @default(1)
+  metadata   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([customerId])
+}
+
+model ValueProposition {
+  id          String   @id @default(cuid())
+  customerId  String
+  title       String
+  valueData   String
+  status      String   @default("draft")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model CompetitiveAnalysis {
+  id           String   @id @default(cuid())
+  customerId   String
+  title        String
+  analysisData String
+  status       String   @default("draft")
+  version      Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model DecisionMap {
+  id         String   @id @default(cuid())
+  customerId String
+  title      String
+  mapData    String
+  status     String   @default("draft")
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model RelationshipMap {
+  id         String   @id @default(cuid())
+  customerId String
+  title      String
+  mapData    String
+  status     String   @default("draft")
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model SalesPath {
+  id         String   @id @default(cuid())
+  customerId String
+  title      String
+  pathData   String
+  status     String   @default("draft")
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model ActionPlan {
+  id         String   @id @default(cuid())
+  customerId String
+  userId     String
+  title      String
+  planData   String
+  status     String   @default("active")
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([customerId])
+  @@index([userId])
+}
+
+model CustomerInsight {
+  id          String   @id @default(cuid())
+  customerId  String
+  title       String
+  insightData String
+  status      String   @default("draft")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+// ============================================================
+//  AI Gateway
+// ============================================================
+
+model PromptTemplate {
+  id                 String   @id @default(cuid())
+  tenantId           String?
+  toolType           String
+  name               String
+  systemPrompt       String
+  userPromptTemplate String
+  variables          String
+  modelConfig        String
+  version            Int      @default(1)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  tenant  Tenant?  @relation(fields: [tenantId], references: [id])
+  aiCalls AICall[]
+
+  @@index([tenantId])
+  @@index([toolType])
+  @@unique([toolType, name])
+}
+
+model AICall {
+  id               String        @id @default(cuid())
+  tenantId         String
+  userId           String
+  promptTemplateId String?
+  toolType         String
+  input            String?
+  output           String?
+  model            String
+  tokensUsed       Int           @default(0)
+  durationMs       Int?
+  status           AICallStatus
+  errorMessage     String?
+  cost             Float?
+  createdAt        DateTime      @default(now())
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id])
+  user           User            @relation(fields: [userId], references: [id])
+  promptTemplate PromptTemplate? @relation(fields: [promptTemplateId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([toolType])
+  @@index([createdAt])
+}
+
+// ============================================================
+//  Battle Lab (36计)
+// ============================================================
+
+model BattlePlan {
+  id           String   @id @default(cuid())
+  tenantId     String
+  customerId   String?
+  userId       String
+  title        String
+  strategy     String
+  situation    String
+  plan         String
+  riskAnalysis String?
+  metadata     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+}
+
+// ============================================================
+//  Work Review (AI工作点评)
+// ============================================================
+
+model WorkReview {
+  id            String   @id @default(cuid())
+  tenantId      String
+  userId        String
+  period        String
+  summary       String?
+  metrics       String?
+  aiAnalysis    String?
+  aiSuggestions String?
+  score         Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+}
+
+// ============================================================
+//  Unified Project Model（终极闭环架构 — 基础物科库 + 万能结果库）
+// ============================================================
+//
+//  设计来源：Kevin 的「白起SSE 数据通路与全局上下文记忆图」
+//  - Project          = 基础物科库（客户名/行业等固态数据）
+//  - ProjectModuleData = 万能结果库（JSONB 无损存放所有 AI 产出）
+//
+//  优势：
+//  1. 新增 SSM 工具无需建新表，只需加一个 moduleType（"厨师"）
+//  2. AI 生成前可读历史 JSONB 作为上下文记忆（context injection）
+//  3. 打开页面直接从 JSONB 渲染，零 Token 消耗
+
+model Project {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String // 项目名称，例："门头沟同仁医院 - 九宫图"
+  customer  String // 客户名称
+  industry  String?
+  contact      String?
+  contactTitle String?
+  stage         String? // 销售阶段 1-7
+  estimatedValue String?
+  pain       String? // 核心业务痛点
+  products  String? // 我方产品/解决方案
+  initiatives String? // 客户业务举措
+  competitors String? // 已知竞争对手
+  extra      String? // 补充背景
+  businessContext String? // 客户业务情况（背景/环境/举措综述）
+  suggestedStage   String? // LLM 建议阶段(1-7)，不直接覆盖权威 stage
+  stageEvidence    String? // 建议依据（透明可审）
+  stageSuggestedAt DateTime?
+  stageConfirmedAt DateTime?
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id])
+  moduleData  ProjectModuleData[]
+  interactions ProjectInteraction[]
+
+  @@index([tenantId])
+  @@index([customer])
+}
+
+model ProjectModuleData {
+  id         String   @id @default(cuid())
+  tenantId   String
+  projectId  String
+  moduleType String // "nine-grid" | "value-prop" | "battle-lab" | ...
+  data       Json // PostgreSQL JSONB — 无损存放 AI 产出
+  version    Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // 注意：取消 (projectId, moduleType) 唯一约束，允许同一项目同模块保存多个版本（版本目录）
+  @@index([projectId, moduleType])
+  @@index([tenantId])
+  @@index([projectId])
+  @@map("ProjectModuleData")
+}
+
+// 项目互动记录：会议 / 电话 / 邮件 / 微信 / 笔记 —— 项目汇总库的动态部分，实时写入
+model ProjectInteraction {
+  id           String   @id @default(cuid())
+  tenantId     String
+  projectId    String
+  type         String // meeting | call | email | wechat | note
+  title        String
+  content      String
+  occurredAt   DateTime @default(now())
+  participants String?
+  aiSummary    String? // LLM 从 content/rawContent 抽取的关键信号（决策/异议/下一步）
+  // —— 多模态录入与数据质量 ——
+  source       String?  // human | asr | vlm | import（标注内容来源，透明可审）
+  rawContent   String?  // ASR/VLM/解析 的原始输出（可审计，区别于清洗后 content）
+  mediaUrls    Json?    // 附件引用数组 [{ name, url, mime, size }]，存于本地 uploads/
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, occurredAt])
+  @@index([tenantId])
+}
