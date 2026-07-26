@@ -10,12 +10,18 @@
 #   - 标 sync:false 的变量不会从本文件写入，需在 Render 后台 Environment 手动填入真实值。
 #   - NODE_VERSION 决定 Node 运行时版本（与本地 22 对齐）。
 #   - healthCheckPath 用 /login：根路径 / 会被鉴权重定向成 307，Render 健康检查只认 2xx，/login 返回 200 最稳。
-#   - 免费版（plan: free）会休眠，首次访问冷启动 30–60s；正式商用改 Starter（$7/月）保活。
+#   - 免费版（plan: free）限制与适配：
+#       · 休眠：无访问会 spin down，首次访问冷启动 30–60s（正式商用改 Starter $7/月 保活）。
+#       · 不支持 one-off jobs：无法在控制台手动跑命令，故 `prisma migrate deploy` 已并入 buildCommand，每次部署自动同步 schema。
+#       · 不支持 persistent disks：容器重启后本地磁盘不保留；本架构为无状态（NextAuth JWT + Supabase），无本地文件依赖，不受影响。
+#       · 不支持 SSH / scaling：排错仅能看 Logs；单实例，高并发需升级付费。
 #
 # 部署后还需做：
 #   1) 在 Render 后台把 NEXTAUTH_URL 改成你实际的 frontend 域名（如 https://baiqi-sse-frontend.onrender.com）。
 #   2) NEXTAUTH_SECRET 用 `openssl rand -base64 32` 生成强随机值填入。
 #   3) DATABASE_URL 填 Supabase 连接串（先用 dev 库跑通，正式切生产库）。
+#      ⚠️ 必须「先填好 DATABASE_URL 再触发首次部署」：build 阶段会自动跑 prisma migrate deploy 同步表结构，缺 DB 串会导致构建失败。
+#   6) 初始化 admin 账号：免费版不支持 one-off jobs，无法在 Render 控制台跑 seed；请在本地连 Supabase 执行 `npm run db:seed`（本地 .env 已指向 Supabase）一次性建好 admin@baiqi.ai。
 #   4) 到 AI端（baiqi-ai-backend）Environment 把 FRONTEND_ORIGIN 追加前端域名：
 #      http://localhost:3000,https://baiqi-sse-frontend.onrender.com
 #   5) 改完环境变量 Render 会自动重新部署。
@@ -27,7 +33,7 @@ services:
     plan: free
     region: oregon
     branch: main
-    buildCommand: npm run build
+    buildCommand: npm run build && ./node_modules/.bin/prisma migrate deploy
     startCommand: npm run start
     healthCheckPath: /login
     envVars:
