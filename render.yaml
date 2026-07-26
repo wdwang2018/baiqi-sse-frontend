@@ -1,0 +1,55 @@
+# Render Blueprint — 白起SSE 前端（母舰 / Next.js）
+#
+# 用法（推荐，独立仓库）：
+#   本文件已放在前端仓库根目录（baiqi-sse-frontend）。
+#   Render 后台 → New → Blueprint → 连接该 GitHub 仓库 → 自动识别本文件建 Web Service。
+#   （也可 New → Web Service 手动建，本文件供参考，手动填环境变量即可。）
+#
+# 说明：
+#   - PORT 由 Render 自动注入（$PORT），start 命令无需手动写端口。
+#   - 标 sync:false 的变量不会从本文件写入，需在 Render 后台 Environment 手动填入真实值。
+#   - NODE_VERSION 决定 Node 运行时版本（与本地 22 对齐）。
+#   - healthCheckPath 用 /login：根路径 / 会被鉴权重定向成 307，Render 健康检查只认 2xx，/login 返回 200 最稳。
+#   - 免费版（plan: free）会休眠，首次访问冷启动 30–60s；正式商用改 Starter（$7/月）保活。
+#
+# 部署后还需做：
+#   1) 在 Render 后台把 NEXTAUTH_URL 改成你实际的 frontend 域名（如 https://baiqi-sse-frontend.onrender.com）。
+#   2) NEXTAUTH_SECRET 用 `openssl rand -base64 32` 生成强随机值填入。
+#   3) DATABASE_URL 填 Supabase 连接串（先用 dev 库跑通，正式切生产库）。
+#   4) 到 AI端（baiqi-ai-backend）Environment 把 FRONTEND_ORIGIN 追加前端域名：
+#      http://localhost:3000,https://baiqi-sse-frontend.onrender.com
+#   5) 改完环境变量 Render 会自动重新部署。
+
+services:
+  - type: web
+    name: baiqi-sse-frontend
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: npm run build
+    startCommand: npm run start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXTAUTH_URL
+        sync: false
+      - key: NEXTAUTH_SECRET
+        sync: false
+      - key: AUTH_TRUST_HOST
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_API_URL
+        value: "https://sse-ai-backend.onrender.com"
+      - key: SENSECARE_API_KEY
+        value: ""
+      - key: SENSECARE_API_URL
+        value: ""
+      - key: OPENAI_API_KEY
+        value: ""
+      - key: ANTHROPIC_API_KEY
+        value: ""
+      - key: DEEPSEEK_API_KEY
+        value: ""
