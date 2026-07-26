@@ -4,7 +4,7 @@
 
 ## 技术栈
 
-- **前端**: Next.js 15 (App Router) + React 19 + TypeScript
+- **前端**: Next.js 14 (App Router) + React 18 + TypeScript
 - **UI**: TailwindCSS + shadcn/ui + Radix UI
 - **数据库**: PostgreSQL + Prisma ORM
 - **认证**: NextAuth.js v5 (JWT + Credentials Provider)
@@ -92,7 +92,7 @@ baiqi-sse/
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.ts
-└── next.config.ts
+└── next.config.mjs
 ```
 
 ## SSM 十大工具
