@@ -13,6 +13,7 @@ export interface NavItem {
   route: string;
   badge?: string; // 右侧彩色徽章文字，如 AI / 本体 / 36计
   badgeColor?: string; // 徽章背景色，缺省为琥珀色 #f59e0b
+  adminOnly?: boolean; // 仅系统管理员（dataScope=ALL）可见，其它租户/主管不可见
 }
 
 export interface NavSection {
@@ -74,6 +75,21 @@ export const NAV_SECTIONS: NavSection[] = [
         route: "/module/reports",
         badge: "NEW",
         badgeColor: "#0891b2",
+      },
+    ],
+  },
+  {
+    title: "系统管理",
+    items: [
+      // 仅系统管理员（dataScope=ALL）可见：跨租户管理用户与部门
+      {
+        id: "user-admin",
+        name: "用户管理",
+        icon: "Users",
+        route: "/admin/users",
+        adminOnly: true,
+        badge: "管理员",
+        badgeColor: "#dc2626",
       },
     ],
   },

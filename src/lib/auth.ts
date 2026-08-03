@@ -2,7 +2,9 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
+import { resolveDataScope } from "@/lib/scope";
 import type { Role } from "@prisma/client";
+import type { DataScope } from "@/lib/tenant-context";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   // JWT strategy — no adapter needed (avoids Prisma on Edge runtime in middleware)
@@ -26,6 +28,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (!user) return null;
 
+        // 禁用账号（软删除）拒绝登录，保留历史数据
+        if (user.status === "DISABLED") return null;
+
         const valid = await bcrypt.compare(
           credentials.password as string,
           user.passwordHash,
@@ -48,12 +53,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Add tenantId & role to token on first login (avoid DB lookup in middleware)
         const dbUser = await db.user.findUnique({
           where: { id: user.id as string },
-          select: { tenantId: true, role: true, name: true },
+          select: { id: true, tenantId: true, role: true, name: true },
         });
         if (dbUser) {
           token.tenantId = dbUser.tenantId;
           token.role = dbUser.role;
           token.name = dbUser.name;
+          token.dataScope = await resolveDataScope(
+            dbUser.id,
+            dbUser.role,
+          );
         }
       }
       return token;
@@ -63,6 +72,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = token.id as string;
         session.user.tenantId = token.tenantId as string;
         session.user.role = (token.role as Role) ?? ("MEMBER" as Role);
+        session.user.dataScope = (token.dataScope as DataScope) ?? "SELF";
         session.user.name = token.name as string;
       }
       return session;

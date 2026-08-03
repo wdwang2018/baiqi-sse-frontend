@@ -17,10 +17,22 @@ enum Plan {
   ENTERPRISE
 }
 
+// 用户主角色枚举（兼容 NextAuth，保留）
+//   语义映射：MEMBER=普通员工 / MANAGER=部门主管 / ADMIN=系统管理员
 enum Role {
   ADMIN
   MANAGER
   MEMBER
+}
+
+// 数据可见范围（AppRole.dataScope）
+//   SELF   = 仅本人创建的数据
+//   TENANT = 本租户（本部门）全部数据
+//   ALL    = 跨租户全部数据（系统管理员）
+enum DataScope {
+  SELF
+  TENANT
+  ALL
 }
 
 enum CustomerStatus {
@@ -122,12 +134,14 @@ model User {
   passwordHash String
   name         String
   role         Role     @default(MEMBER)
+  status       String   @default("ACTIVE") // 账号状态：ACTIVE=启用 / DISABLED=禁用（软删除，保留历史数据）
   avatar       String?
   oceanProfile String?
+  createdBy    String? // 账号创建人ID（管理员建的填管理员ID；种子账号为 NULL）
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
   accounts    Account[]
   sessions    Session[]
   customers   Customer[]
@@ -137,8 +151,39 @@ model User {
   actionPlans ActionPlan[]
   battlePlans BattlePlan[]
   workReviews WorkReview[]
+  userRoles   UserRole[]
 
   @@index([tenantId])
+  @@index([createdBy])
+}
+
+// 角色定义表（多租户 RBAC）
+//   code 与 Role 枚举对齐：MEMBER / MANAGER / ADMIN
+//   dataScope 决定该角色的数据可见范围（SELF / TENANT / ALL）
+model AppRole {
+  id          String     @id @default(cuid())
+  code        String     @unique // MEMBER | MANAGER | ADMIN
+  name        String // 普通员工 / 部门主管 / 系统管理员
+  description String?
+  dataScope   DataScope  @default(SELF)
+  userRoles   UserRole[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+// 用户-角色多对多关联表
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role AppRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
 }
 
 // ============================================================
@@ -149,6 +194,7 @@ model Customer {
   id          String         @id @default(cuid())
   tenantId    String
   ownerId     String
+  createdBy   String? // 创建人ID（行级隔离）
   name        String
   industry    String?
   companySize String?
@@ -175,11 +221,13 @@ model Customer {
 
   @@index([tenantId])
   @@index([ownerId])
+  @@index([createdBy])
 }
 
 model Contact {
   id         String   @id @default(cuid())
   customerId String
+  createdBy  String? // 创建人ID
   name       String
   title      String?
   email      String?
@@ -194,11 +242,13 @@ model Contact {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([createdBy])
 }
 
 model Opportunity {
   id          String           @id @default(cuid())
   customerId  String
+  createdBy   String? // 创建人ID
   name        String
   amount      Float?
   stage       OpportunityStage @default(QUALIFICATION)
@@ -211,6 +261,7 @@ model Opportunity {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([createdBy])
 }
 
 // ============================================================
@@ -222,6 +273,7 @@ model NineGrid {
   tenantId   String
   customerId String
   userId     String
+  createdBy  String? // 创建人ID（行级隔离）
   title      String
   gridData   String
   status     String   @default("draft")
@@ -236,6 +288,7 @@ model NineGrid {
 
   @@index([tenantId])
   @@index([customerId])
+  @@index([createdBy])
 }
 
 model PainChain {
@@ -243,6 +296,7 @@ model PainChain {
   tenantId   String
   customerId String
   userId     String
+  createdBy  String? // 创建人ID（行级隔离）
   title      String
   painData   String
   status     String   @default("draft")
@@ -257,11 +311,13 @@ model PainChain {
 
   @@index([tenantId])
   @@index([customerId])
+  @@index([createdBy])
 }
 
 model ValueProposition {
   id          String   @id @default(cuid())
   customerId  String
+  createdBy   String? // 创建人ID
   title       String
   valueData   String
   status      String   @default("draft")
@@ -272,11 +328,13 @@ model ValueProposition {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([createdBy])
 }
 
 model CompetitiveAnalysis {
   id           String   @id @default(cuid())
   customerId   String
+  createdBy    String? // 创建人ID
   title        String
   analysisData String
   status       String   @default("draft")
@@ -287,11 +345,13 @@ model CompetitiveAnalysis {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([createdBy])
 }
 
 model DecisionMap {
   id         String   @id @default(cuid())
   customerId String
+  createdBy  String? // 创建人ID
   title      String
   mapData    String
   status     String   @default("draft")
@@ -302,11 +362,13 @@ model DecisionMap {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([createdBy])
 }
 
 model RelationshipMap {
   id         String   @id @default(cuid())
   customerId String
+  createdBy  String? // 创建人ID
   title      String
   mapData    String
   status     String   @default("draft")
@@ -317,11 +379,13 @@ model RelationshipMap {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([createdBy])
 }
 
 model SalesPath {
   id         String   @id @default(cuid())
   customerId String
+  createdBy  String? // 创建人ID
   title      String
   pathData   String
   status     String   @default("draft")
@@ -332,12 +396,14 @@ model SalesPath {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([createdBy])
 }
 
 model ActionPlan {
   id         String   @id @default(cuid())
   customerId String
   userId     String
+  createdBy  String? // 创建人ID（行级隔离）
   title      String
   planData   String
   status     String   @default("active")
@@ -350,11 +416,13 @@ model ActionPlan {
 
   @@index([customerId])
   @@index([userId])
+  @@index([createdBy])
 }
 
 model CustomerInsight {
   id          String   @id @default(cuid())
   customerId  String
+  createdBy   String? // 创建人ID
   title       String
   insightData String
   status      String   @default("draft")
@@ -365,6 +433,7 @@ model CustomerInsight {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@index([customerId])
+  @@index([createdBy])
 }
 
 // ============================================================
@@ -397,6 +466,7 @@ model AICall {
   id               String        @id @default(cuid())
   tenantId         String
   userId           String
+  createdBy        String? // 创建人ID（行级隔离）
   promptTemplateId String?
   toolType         String
   input            String?
@@ -415,6 +485,7 @@ model AICall {
 
   @@index([tenantId])
   @@index([userId])
+  @@index([createdBy])
   @@index([toolType])
   @@index([createdAt])
 }
@@ -428,6 +499,7 @@ model BattlePlan {
   tenantId     String
   customerId   String?
   userId       String
+  createdBy    String? // 创建人ID（行级隔离）
   title        String
   strategy     String
   situation    String
@@ -442,6 +514,7 @@ model BattlePlan {
 
   @@index([tenantId])
   @@index([userId])
+  @@index([createdBy])
 }
 
 // ============================================================
@@ -452,6 +525,7 @@ model WorkReview {
   id            String   @id @default(cuid())
   tenantId      String
   userId        String
+  createdBy     String? // 创建人ID（行级隔离）
   period        String
   summary       String?
   metrics       String?
@@ -466,6 +540,7 @@ model WorkReview {
 
   @@index([tenantId])
   @@index([userId])
+  @@index([createdBy])
 }
 
 // ============================================================
@@ -484,6 +559,7 @@ model WorkReview {
 model Project {
   id        String   @id @default(cuid())
   tenantId  String
+  createdBy String? // 创建人ID（行级隔离）
   name      String // 项目名称，例："门头沟同仁医院 - 九宫图"
   customer  String // 客户名称
   industry  String?
@@ -510,6 +586,7 @@ model Project {
   interactions ProjectInteraction[]
 
   @@index([tenantId])
+  @@index([createdBy])
   @@index([customer])
 }
 
@@ -517,6 +594,7 @@ model ProjectModuleData {
   id         String   @id @default(cuid())
   tenantId   String
   projectId  String
+  createdBy  String? // 创建人ID（行级隔离）
   moduleType String // "nine-grid" | "value-prop" | "battle-lab" | ...
   data       Json // PostgreSQL JSONB — 无损存放 AI 产出
   version    Int      @default(1)
@@ -529,6 +607,7 @@ model ProjectModuleData {
   // 注意：取消 (projectId, moduleType) 唯一约束，允许同一项目同模块保存多个版本（版本目录）
   @@index([projectId, moduleType])
   @@index([tenantId])
+  @@index([createdBy])
   @@index([projectId])
   @@map("ProjectModuleData")
 }
@@ -538,6 +617,7 @@ model ProjectInteraction {
   id           String   @id @default(cuid())
   tenantId     String
   projectId    String
+  createdBy    String? // 创建人ID（行级隔离）
   type         String // meeting | call | email | wechat | note
   title        String
   content      String
@@ -556,4 +636,5 @@ model ProjectInteraction {
 
   @@index([projectId, occurredAt])
   @@index([tenantId])
+  @@index([createdBy])
 }

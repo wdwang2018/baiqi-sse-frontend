@@ -205,6 +205,59 @@ async function main() {
     console.log(`Upserted prompt template: ${created.name}`);
   }
 
+  // 3. Seed RBAC 角色定义（AppRole）+ 绑定 admin 到 ADMIN
+  const roles = [
+    {
+      code: "MEMBER",
+      name: "普通员工",
+      description: "仅可访问本人创建的数据",
+      dataScope: "SELF" as const,
+    },
+    {
+      code: "MANAGER",
+      name: "部门主管",
+      description: "可查看本租户（本部门）全部数据",
+      dataScope: "TENANT" as const,
+    },
+    {
+      code: "ADMIN",
+      name: "系统管理员",
+      description: "可跨租户查看所有数据",
+      dataScope: "ALL" as const,
+    },
+  ];
+
+  for (const r of roles) {
+    await prisma.appRole.upsert({
+      where: { code: r.code },
+      update: { name: r.name, description: r.description, dataScope: r.dataScope },
+      create: {
+        code: r.code,
+        name: r.name,
+        description: r.description,
+        dataScope: r.dataScope,
+      },
+    });
+  }
+  console.log("Seeded AppRoles: MEMBER / MANAGER / ADMIN");
+
+  const adminUser = await prisma.user.findUnique({
+    where: { email: "admin@baiqi.ai" },
+  });
+  const adminRole = await prisma.appRole.findUnique({
+    where: { code: "ADMIN" },
+  });
+  if (adminUser && adminRole) {
+    await prisma.userRole.upsert({
+      where: {
+        userId_roleId: { userId: adminUser.id, roleId: adminRole.id },
+      },
+      update: {},
+      create: { userId: adminUser.id, roleId: adminRole.id },
+    });
+    console.log("Bound admin@baiqi.ai → ADMIN role (dataScope=ALL)");
+  }
+
   console.log("\nSeed completed successfully!");
   console.log("Login: admin@baiqi.ai / admin123");
 }
