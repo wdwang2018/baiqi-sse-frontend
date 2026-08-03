@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { BUILTIN_PROMPTS } from "./builtin-prompts";
 
 interface AIGatewayParams {
   toolType: string;
@@ -19,7 +20,8 @@ interface AIGatewayResult {
  * AI 网关 — 服务端统一入口
  *
  * 职责：
- * 1. 从数据库加载 Prompt 模板（租户级覆盖 > 全局默认）
+ * 1. 从数据库加载 Prompt 模板（租户级覆盖 > 全局默认）；数据库无模板时回退到
+ *    内置默认 Prompt 注册表（BUILTIN_PROMPTS），保证新模块开箱即用。
  * 2. 填充变量后调用 LLM API（密钥仅在服务端，永不暴露给浏览器）
  * 3. 记录调用日志用于审计和计费
  * 4. 更新租户用量计数
@@ -42,18 +44,31 @@ export async function callAI({
     orderBy: [{ tenantId: "desc" }, { version: "desc" }],
   });
 
-  if (!template) {
-    throw new Error(`No active prompt template for tool: ${toolType}`);
+  let systemPrompt: string;
+  let userPrompt: string;
+  let modelConfig: { model: string; temperature: number; maxTokens: number };
+  let promptTemplateId: string | null = null;
+
+  if (template) {
+    systemPrompt = template.systemPrompt;
+    userPrompt = fillTemplate(template.userPromptTemplate, input);
+    modelConfig = JSON.parse(template.modelConfig) as {
+      model: string;
+      temperature: number;
+      maxTokens: number;
+    };
+    promptTemplateId = template.id;
+  } else {
+    // 回退到内置默认 Prompt（无需手动灌种子即可运行）
+    const builtin = BUILTIN_PROMPTS[toolType];
+    if (!builtin) {
+      throw new Error(`No active prompt template for tool: ${toolType}`);
+    }
+    systemPrompt = builtin.systemPrompt;
+    userPrompt = fillTemplate(builtin.userPromptTemplate, input);
+    modelConfig = builtin.modelConfig;
   }
 
-  const systemPrompt = template.systemPrompt;
-  const userPrompt = fillTemplate(template.userPromptTemplate, input);
-
-  const modelConfig = JSON.parse(template.modelConfig) as {
-    model: string;
-    temperature: number;
-    maxTokens: number;
-  };
   const model = modelOverride || modelConfig.model;
 
   const result = await callLLM({
@@ -70,7 +85,7 @@ export async function callAI({
     data: {
       tenantId,
       userId,
-      promptTemplateId: template.id,
+      promptTemplateId,
       toolType,
       input: JSON.stringify(input),
       output: JSON.stringify({ content: result.content }),
