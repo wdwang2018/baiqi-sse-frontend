@@ -7,6 +7,8 @@ interface AIGatewayParams {
   userId: string;
   tenantId: string;
   modelOverride?: string;
+  /** 浏览器会话 Cookie，透传给 AI 端以复用其鉴权（与九宫格同源）。 */
+  authCookie?: string;
 }
 
 interface AIGatewayResult {
@@ -22,9 +24,12 @@ interface AIGatewayResult {
  * 职责：
  * 1. 从数据库加载 Prompt 模板（租户级覆盖 > 全局默认）；数据库无模板时回退到
  *    内置默认 Prompt 注册表（BUILTIN_PROMPTS），保证新模块开箱即用。
- * 2. 填充变量后调用 LLM API（密钥仅在服务端，永不暴露给浏览器）
+ * 2. 填充变量后，把拼装好的 system/user 提示词委托给 AI 端 `/api/ai/generate`
+ *    执行真实 LLM 调用（由 AI 端持 DEEPSEEK_API_KEY，密钥绝不落母舰）。
  * 3. 记录调用日志用于审计和计费
  * 4. 更新租户用量计数
+ *
+ * 与九宫格完全同源：实际大模型调用一律发生在 AI 端。
  */
 export async function callAI({
   toolType,
@@ -32,6 +37,7 @@ export async function callAI({
   userId,
   tenantId,
   modelOverride,
+  authCookie,
 }: AIGatewayParams): Promise<AIGatewayResult> {
   const startTime = Date.now();
 
@@ -77,6 +83,7 @@ export async function callAI({
     userPrompt,
     temperature: modelConfig.temperature,
     maxTokens: modelConfig.maxTokens,
+    authCookie,
   });
 
   const durationMs = Date.now() - startTime;
@@ -125,61 +132,29 @@ async function callLLM(params: {
   userPrompt: string;
   temperature: number;
   maxTokens: number;
+  authCookie?: string;
 }): Promise<{ content: string; tokensUsed: number }> {
-  if (params.model.startsWith("gpt")) {
-    return callOpenAI(params);
+  // 与九宫格同源：实际 LLM 调用委托给 AI 端（由 AI 端持 DEEPSEEK_API_KEY 执行）。
+  // 母舰只负责拼装提示词、记录 aICall 日志、更新租户用量；密钥仅在 AI 端，绝不落母舰。
+  const base =
+    process.env.AI_SERVICE_URL || process.env.NEXT_PUBLIC_API_URL || "";
+  if (!base) {
+    throw new Error(
+      "未配置 AI 服务地址（请设置 AI_SERVICE_URL 或 NEXT_PUBLIC_API_URL）",
+    );
   }
-  if (params.model.startsWith("claude")) {
-    return callAnthropic(params);
-  }
-  if (params.model.startsWith("deepseek")) {
-    return callDeepSeek(params);
-  }
-  // SenseCare / any OpenAI-compatible endpoint
-  if (params.model.startsWith("Dayi")) {
-    return callOpenAICompatible(params, {
-      url: process.env.SENSECARE_API_URL!,
-      apiKey: process.env.SENSECARE_API_KEY!,
-    });
-  }
-  throw new Error(`Unknown model: ${params.model}`);
-}
+  const url = `${base.replace(/\/$/, "")}/api/ai/generate`;
 
-async function callOpenAI(params: {
-  model: string;
-  systemPrompt: string;
-  userPrompt: string;
-  temperature: number;
-  maxTokens: number;
-}): Promise<{ content: string; tokensUsed: number }> {
-  return callOpenAICompatible(params, {
-    url: "https://api.openai.com/v1/chat/completions",
-    apiKey: process.env.OPENAI_API_KEY!,
-  });
-}
-
-async function callOpenAICompatible(
-  params: {
-    model: string;
-    systemPrompt: string;
-    userPrompt: string;
-    temperature: number;
-    maxTokens: number;
-  },
-  config: { url: string; apiKey: string },
-): Promise<{ content: string; tokensUsed: number }> {
-  const res = await fetch(config.url, {
+  const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
+      ...(params.authCookie ? { cookie: params.authCookie } : {}),
     },
     body: JSON.stringify({
+      system_prompt: params.systemPrompt,
+      user_prompt: params.userPrompt,
       model: params.model,
-      messages: [
-        { role: "system", content: params.systemPrompt },
-        { role: "user", content: params.userPrompt },
-      ],
       temperature: params.temperature,
       max_tokens: params.maxTokens,
     }),
@@ -187,96 +162,13 @@ async function callOpenAICompatible(
 
   if (!res.ok) {
     const errText = await res.text().catch(() => res.statusText);
-    throw new Error(`LLM API error (${res.status}): ${errText}`);
+    throw new Error(`AI 服务调用失败 (${res.status}): ${errText.slice(0, 300)}`);
   }
 
   const data = await res.json();
-  const rawContent = data.choices[0]?.message?.content || "";
-  const reasoning = data.choices[0]?.message?.reasoning_content || "";
-  const finishReason = data.choices[0]?.finish_reason || "";
-
-  // 推理模型（如 Dayi）可能因 max_tokens 不足导致 content 为空
-  if (!rawContent && reasoning) {
-    throw new Error(
-      `LLM 返回内容为空（finish_reason=${finishReason}）。模型推理已耗尽 token，请增大 maxTokens 配置。` +
-      `推理摘要: ${reasoning.slice(0, 200)}...`
-    );
-  }
-
-  if (!rawContent) {
-    throw new Error(
-      `LLM 返回内容为空（finish_reason=${finishReason}）`
-    );
-  }
-
+  const usage = data.usage || {};
   return {
-    content: rawContent,
-    tokensUsed: data.usage?.total_tokens || 0,
-  };
-}
-
-async function callAnthropic(params: {
-  model: string;
-  systemPrompt: string;
-  userPrompt: string;
-  temperature: number;
-  maxTokens: number;
-}): Promise<{ content: string; tokensUsed: number }> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY!,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: params.model,
-      system: params.systemPrompt,
-      messages: [{ role: "user", content: params.userPrompt }],
-      temperature: params.temperature,
-      max_tokens: params.maxTokens,
-    }),
-  });
-
-  if (!res.ok) throw new Error(`Anthropic API error: ${res.statusText}`);
-
-  const data = await res.json();
-  return {
-    content: data.content[0]?.text || "",
-    tokensUsed:
-      (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
-  };
-}
-
-async function callDeepSeek(params: {
-  model: string;
-  systemPrompt: string;
-  userPrompt: string;
-  temperature: number;
-  maxTokens: number;
-}): Promise<{ content: string; tokensUsed: number }> {
-  const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: params.model,
-      messages: [
-        { role: "system", content: params.systemPrompt },
-        { role: "user", content: params.userPrompt },
-      ],
-      temperature: params.temperature,
-      max_tokens: params.maxTokens,
-    }),
-  });
-
-  if (!res.ok) throw new Error(`DeepSeek API error: ${res.statusText}`);
-
-  const data = await res.json();
-  return {
-    content: data.choices[0]?.message?.content || "",
-    tokensUsed: data.usage?.total_tokens || 0,
+    content: data.content || "",
+    tokensUsed: Number(usage.total_tokens) || 0,
   };
 }

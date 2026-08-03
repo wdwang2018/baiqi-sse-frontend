@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       tenantId: user.tenantId,
       modelOverride: model,
+      authCookie: req.headers.get("cookie") ?? undefined,
     });
 
     return NextResponse.json(result);
