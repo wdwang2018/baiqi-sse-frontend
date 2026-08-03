@@ -19,6 +19,20 @@ export interface BuiltinPrompt {
 
 const DEEPSEEK = "deepseek-chat";
 
+/**
+ * 客户端/服务端通用的占位符填充（{{fieldKey}} → 输入值）。
+ * 纯函数、无服务端依赖，可用于浏览器端直连 AI 端前组装提示词。
+ */
+export function fillTemplate(
+  template: string,
+  variables: Record<string, string>,
+): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
+    const val = variables[key];
+    return val !== undefined ? val : "";
+  });
+}
+
 export const BUILTIN_PROMPTS: Record<string, BuiltinPrompt> = {
   // ============================================================
   // TOOL 2: 价值主张

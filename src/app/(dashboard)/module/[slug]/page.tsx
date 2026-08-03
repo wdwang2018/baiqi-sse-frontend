@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { findNavItem } from "@/lib/constants";
 import { getModuleConfig, type ModuleConfig, type ModuleField } from "@/lib/modules/registry";
+import { BUILTIN_PROMPTS, fillTemplate } from "@/lib/ai/builtin-prompts";
 import { Markdown } from "@/components/markdown";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -177,13 +178,41 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
     setError("");
     setResult("");
     try {
-      const res = await fetch("/api/ai", {
+      // 与九宫格 / 项目汇总库(classify) 完全一致：前端**直连 AI 端**，携带 NextAuth Cookie，
+      // 由 AI 端持 DEEPSEEK_API_KEY 调大模型。母舰不再经 /api/ai 网关中转，密钥绝不落母舰。
+      const builtin = BUILTIN_PROMPTS[config.slug];
+      if (!builtin) throw new Error(`未找到模块「${config.slug}」的提示词配置`);
+
+      const system_prompt = builtin.systemPrompt;
+      const user_prompt = fillTemplate(builtin.userPromptTemplate, values as Record<string, string>);
+
+      const AI_BASE = process.env.NEXT_PUBLIC_API_URL || "http://192.168.1.75:8001";
+      const res = await fetch(`${AI_BASE}/api/ai/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ toolType: config.slug, input: values }),
+        credentials: "include", // 携带 NextAuth Cookie，AI 端用 NEXTAUTH_SECRET 解密鉴权（与九宫格同源）
+        body: JSON.stringify({
+          system_prompt,
+          user_prompt,
+          model: builtin.modelConfig.model,
+          temperature: builtin.modelConfig.temperature,
+          max_tokens: builtin.modelConfig.maxTokens,
+        }),
       });
+
+      if (!res.ok) {
+        let errBody: any = null;
+        try {
+          errBody = await res.json();
+        } catch {
+          /* ignore */
+        }
+        const msg =
+          errBody?.detail || errBody?.error || `AI 请求失败 (${res.status})`;
+        throw new Error(msg);
+      }
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || `请求失败 (${res.status})`);
       setResult(data?.content || "");
     } catch (e: any) {
       setError(e?.message || "生成失败");
