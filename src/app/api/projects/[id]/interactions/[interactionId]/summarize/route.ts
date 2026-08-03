@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth-helper";
+import { scopeByTenant } from "@/lib/project-access";
 import { callAI } from "@/lib/ai/gateway";
 
 const TOOL = "interaction-summary";
@@ -36,6 +37,7 @@ export async function POST(
     where: {
       id: params.interactionId,
       projectId: params.id,
+      ...scopeByTenant(auth),
     },
     select: {
       id: true,

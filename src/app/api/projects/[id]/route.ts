@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth-helper";
+import { projectScopeWhere } from "@/lib/project-access";
 
 // GET /api/projects/[id] — 读取单个项目（含所有模块数据，供前端直接渲染）
 export async function GET(
@@ -11,9 +12,7 @@ export async function GET(
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const project = await db.project.findFirst({
-    // 不硬编码 tenantId：多租户过滤交由 Prisma 守卫按 dataScope 处理
-    // （SELF=本人 / TENANT=全部门 / ALL=跨租户全部）。
-    where: { id: params.id },
+    where: { id: params.id, ...projectScopeWhere(auth) },
     include: { moduleData: true },
   });
 
@@ -32,9 +31,7 @@ export async function PATCH(
   const body = await req.json().catch(() => ({}));
 
   const result = await db.project.updateMany({
-    // 不硬编码 tenantId：多租户过滤交由 Prisma 守卫按 dataScope 处理
-    // （SELF=本人 / TENANT=全部门 / ALL=跨租户全部）。
-    where: { id: params.id },
+    where: { id: params.id, ...projectScopeWhere(auth) },
     data: {
       name: body.name,
       customer: body.customer,
@@ -71,9 +68,7 @@ export async function DELETE(
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const result = await db.project.deleteMany({
-    // 不硬编码 tenantId：多租户过滤交由 Prisma 守卫按 dataScope 处理
-    // （SELF=本人 / TENANT=全部门 / ALL=跨租户全部）。
-    where: { id: params.id },
+    where: { id: params.id, ...projectScopeWhere(auth) },
   });
 
   if (result.count === 0)

@@ -3,6 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { db } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth-helper";
+import { scopeByTenant } from "@/lib/project-access";
 
 const UPLOAD_ROOT = path.join(process.cwd(), "uploads", "interactions");
 
@@ -28,6 +29,7 @@ export async function POST(
     where: {
       id: params.interactionId,
       projectId: params.id,
+      ...scopeByTenant(auth),
     },
     select: { id: true, projectId: true },
   });

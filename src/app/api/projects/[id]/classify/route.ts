@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth-helper";
+import { projectScopeWhere } from "@/lib/project-access";
 import { callAI } from "@/lib/ai/gateway";
 import { buildProjectSnapshot } from "@/lib/project-snapshot";
 import { SSM_STAGE_OPTIONS } from "@/lib/constants";
@@ -85,7 +86,7 @@ export async function POST(
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const project = await db.project.findFirst({
-    where: { id: params.id },
+    where: { id: params.id, ...projectScopeWhere(auth) },
     include: {
       interactions: {
         orderBy: { occurredAt: "desc" },
@@ -181,7 +182,7 @@ export async function POST(
     typeof parsed.confidence === "number" ? parsed.confidence : null;
 
   await db.project.updateMany({
-    where: { id: params.id },
+    where: { id: params.id, ...projectScopeWhere(auth) },
     data: {
       suggestedStage,
       stageEvidence,

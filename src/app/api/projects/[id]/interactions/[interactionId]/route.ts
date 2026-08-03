@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth-helper";
+import { scopeByTenant } from "@/lib/project-access";
 
 export async function DELETE(
   req: NextRequest,
@@ -14,6 +15,7 @@ export async function DELETE(
     where: {
       id: params.interactionId,
       projectId: params.id,
+      ...scopeByTenant(auth),
     },
     select: { id: true },
   });
@@ -23,6 +25,7 @@ export async function DELETE(
     where: {
       id: params.interactionId,
       projectId: params.id,
+      ...scopeByTenant(auth),
     },
   });
 

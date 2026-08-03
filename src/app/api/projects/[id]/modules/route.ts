@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth-helper";
+import { projectScopeWhere, scopeByTenant } from "@/lib/project-access";
 
 // GET /api/projects/[id]/modules — 读取该项目下所有模块的 JSONB 数据
 export async function GET(
@@ -12,13 +13,13 @@ export async function GET(
 
   // 租户隔离校验
   const project = await db.project.findFirst({
-    where: { id: params.id },
+    where: { id: params.id, ...projectScopeWhere(auth) },
     select: { id: true },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const modules = await db.projectModuleData.findMany({
-    where: { projectId: params.id },
+    where: { projectId: params.id, ...scopeByTenant(auth) },
   });
 
   return NextResponse.json(modules);
@@ -47,7 +48,7 @@ export async function PUT(
   }
 
   const project = await db.project.findFirst({
-    where: { id: params.id },
+    where: { id: params.id, ...projectScopeWhere(auth) },
     select: { id: true },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -63,6 +64,7 @@ export async function PUT(
   const created = await db.projectModuleData.create({
     data: {
       tenantId: auth.tenantId,
+      createdBy: auth.id,
       projectId: params.id,
       moduleType,
       data,

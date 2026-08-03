@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth-helper";
+import { projectScopeWhere } from "@/lib/project-access";
 
 // GET /api/projects — 列出当前租户下所有项目（基础物科库）
 export async function GET(req: NextRequest) {
@@ -10,6 +11,7 @@ export async function GET(req: NextRequest) {
   // 注意：不在此处硬编码 tenantId。多租户过滤交由 Prisma 守卫（src/lib/db.ts）
   // 按 dataScope 处理：SELF=本人、TENANT=全部门、ALL=跨租户全部。
   const projects = await db.project.findMany({
+    where: projectScopeWhere(auth),
     orderBy: { updatedAt: "desc" },
     include: {
       // 带回该项目的所有保存版本（万能结果库），按版本倒序，供历史页直接渲染版本目录
@@ -44,6 +46,7 @@ export async function POST(req: NextRequest) {
     const project = await db.project.create({
       data: {
         tenantId: auth.tenantId,
+        createdBy: auth.id,
         name: body.name?.trim() || `${body.customer} - 项目`,
         customer: body.customer,
         industry: body.industry ?? null,

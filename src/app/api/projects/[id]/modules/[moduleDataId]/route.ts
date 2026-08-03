@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth-helper";
+import { scopeByTenant } from "@/lib/project-access";
 
 // DELETE /api/projects/[id]/modules/[moduleDataId]
 // 删除某一个保存版本（万能结果库中的一行）。需校验归属：该版本必须属于
@@ -16,6 +17,7 @@ export async function DELETE(
     where: {
       id: params.moduleDataId,
       projectId: params.id,
+      ...scopeByTenant(auth),
     },
     select: { id: true },
   });

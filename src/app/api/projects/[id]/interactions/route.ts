@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAuthUser } from "@/lib/auth-helper";
+import { projectScopeWhere, scopeByTenant } from "@/lib/project-access";
 
 const VALID_TYPES = ["meeting", "call", "email", "wechat", "note"];
 const VALID_SOURCES = ["human", "asr", "vlm", "import"];
@@ -14,13 +15,13 @@ export async function GET(
 
   // 先校验项目归属，避免越权枚举
   const project = await db.project.findFirst({
-    where: { id: params.id },
+    where: { id: params.id, ...projectScopeWhere(auth) },
     select: { id: true },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const interactions = await db.projectInteraction.findMany({
-    where: { projectId: params.id },
+    where: { projectId: params.id, ...scopeByTenant(auth) },
     orderBy: { occurredAt: "desc" },
   });
 
@@ -35,7 +36,7 @@ export async function POST(
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const project = await db.project.findFirst({
-    where: { id: params.id },
+    where: { id: params.id, ...projectScopeWhere(auth) },
     select: { id: true },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -72,6 +73,7 @@ export async function POST(
   const created = await db.projectInteraction.create({
     data: {
       tenantId: auth.tenantId,
+      createdBy: auth.id,
       projectId: params.id,
       type,
       title,
