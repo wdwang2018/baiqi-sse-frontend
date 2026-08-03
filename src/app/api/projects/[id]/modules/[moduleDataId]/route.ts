@@ -16,7 +16,6 @@ export async function DELETE(
     where: {
       id: params.moduleDataId,
       projectId: params.id,
-      tenantId: auth.tenantId,
     },
     select: { id: true },
   });

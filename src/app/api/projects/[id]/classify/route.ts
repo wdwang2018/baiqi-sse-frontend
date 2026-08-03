@@ -85,7 +85,7 @@ export async function POST(
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const project = await db.project.findFirst({
-    where: { id: params.id, tenantId: auth.tenantId },
+    where: { id: params.id },
     include: {
       interactions: {
         orderBy: { occurredAt: "desc" },
@@ -181,7 +181,7 @@ export async function POST(
     typeof parsed.confidence === "number" ? parsed.confidence : null;
 
   await db.project.updateMany({
-    where: { id: params.id, tenantId: auth.tenantId },
+    where: { id: params.id },
     data: {
       suggestedStage,
       stageEvidence,

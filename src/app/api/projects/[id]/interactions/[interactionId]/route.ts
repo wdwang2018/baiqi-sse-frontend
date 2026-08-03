@@ -14,7 +14,6 @@ export async function DELETE(
     where: {
       id: params.interactionId,
       projectId: params.id,
-      tenantId: auth.tenantId,
     },
     select: { id: true },
   });
@@ -24,7 +23,6 @@ export async function DELETE(
     where: {
       id: params.interactionId,
       projectId: params.id,
-      tenantId: auth.tenantId,
     },
   });
 

@@ -11,7 +11,9 @@ export async function GET(
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const project = await db.project.findFirst({
-    where: { id: params.id, tenantId: auth.tenantId },
+    // 不硬编码 tenantId：多租户过滤交由 Prisma 守卫按 dataScope 处理
+    // （SELF=本人 / TENANT=全部门 / ALL=跨租户全部）。
+    where: { id: params.id },
     include: { moduleData: true },
   });
 
@@ -30,7 +32,9 @@ export async function PATCH(
   const body = await req.json().catch(() => ({}));
 
   const result = await db.project.updateMany({
-    where: { id: params.id, tenantId: auth.tenantId },
+    // 不硬编码 tenantId：多租户过滤交由 Prisma 守卫按 dataScope 处理
+    // （SELF=本人 / TENANT=全部门 / ALL=跨租户全部）。
+    where: { id: params.id },
     data: {
       name: body.name,
       customer: body.customer,
@@ -67,7 +71,9 @@ export async function DELETE(
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const result = await db.project.deleteMany({
-    where: { id: params.id, tenantId: auth.tenantId },
+    // 不硬编码 tenantId：多租户过滤交由 Prisma 守卫按 dataScope 处理
+    // （SELF=本人 / TENANT=全部门 / ALL=跨租户全部）。
+    where: { id: params.id },
   });
 
   if (result.count === 0)

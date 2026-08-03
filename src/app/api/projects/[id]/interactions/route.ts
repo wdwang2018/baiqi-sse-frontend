@@ -14,13 +14,13 @@ export async function GET(
 
   // 先校验项目归属，避免越权枚举
   const project = await db.project.findFirst({
-    where: { id: params.id, tenantId: auth.tenantId },
+    where: { id: params.id },
     select: { id: true },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const interactions = await db.projectInteraction.findMany({
-    where: { projectId: params.id, tenantId: auth.tenantId },
+    where: { projectId: params.id },
     orderBy: { occurredAt: "desc" },
   });
 
@@ -35,7 +35,7 @@ export async function POST(
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const project = await db.project.findFirst({
-    where: { id: params.id, tenantId: auth.tenantId },
+    where: { id: params.id },
     select: { id: true },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });

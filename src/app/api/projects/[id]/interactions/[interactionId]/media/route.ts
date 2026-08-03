@@ -28,7 +28,6 @@ export async function POST(
     where: {
       id: params.interactionId,
       projectId: params.id,
-      tenantId: auth.tenantId,
     },
     select: { id: true, projectId: true },
   });

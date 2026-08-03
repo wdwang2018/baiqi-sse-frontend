@@ -12,13 +12,13 @@ export async function GET(
 
   // 租户隔离校验
   const project = await db.project.findFirst({
-    where: { id: params.id, tenantId: auth.tenantId },
+    where: { id: params.id },
     select: { id: true },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const modules = await db.projectModuleData.findMany({
-    where: { projectId: params.id, tenantId: auth.tenantId },
+    where: { projectId: params.id },
   });
 
   return NextResponse.json(modules);
@@ -47,14 +47,14 @@ export async function PUT(
   }
 
   const project = await db.project.findFirst({
-    where: { id: params.id, tenantId: auth.tenantId },
+    where: { id: params.id },
     select: { id: true },
   });
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // 计算下一个版本号（同一 project + moduleType 下自增）
   const maxRow = await db.projectModuleData.findFirst({
-    where: { projectId: params.id, moduleType, tenantId: auth.tenantId },
+    where: { projectId: params.id, moduleType },
     orderBy: { version: "desc" },
     select: { version: true },
   });

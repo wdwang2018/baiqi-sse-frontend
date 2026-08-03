@@ -7,8 +7,9 @@ export async function GET(req: NextRequest) {
   const auth = await getAuthUser(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // 注意：不在此处硬编码 tenantId。多租户过滤交由 Prisma 守卫（src/lib/db.ts）
+  // 按 dataScope 处理：SELF=本人、TENANT=全部门、ALL=跨租户全部。
   const projects = await db.project.findMany({
-    where: { tenantId: auth.tenantId },
     orderBy: { updatedAt: "desc" },
     include: {
       // 带回该项目的所有保存版本（万能结果库），按版本倒序，供历史页直接渲染版本目录
