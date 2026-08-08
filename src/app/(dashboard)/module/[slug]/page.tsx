@@ -42,6 +42,13 @@ interface ProjectRow {
   products: string | null;
 }
 
+// review 模块 logs 的结构化物件（与后端 ReviewInput.logs: array<LogRow> 对齐）
+interface LogRow {
+  date: string;
+  action_type: string;
+  content: string;
+}
+
 // 根据字段 key 从项目对象取值（用于「从项目载入」自动填充）
 function autofillValue(field: ModuleField, p: ProjectRow): string {
   switch (field.key) {
@@ -66,9 +73,13 @@ function autofillValue(field: ModuleField, p: ProjectRow): string {
 }
 
 // 将表单值组装为后端工具专属的 Input（数组按行拆分、整数转换、空可选字段置 null）
-function buildInput(config: ModuleConfig, values: Record<string, string>): Record<string, any> {
+function buildInput(config: ModuleConfig, values: Record<string, string>, logRows: LogRow[]): Record<string, any> {
   const out: Record<string, any> = {};
   for (const f of config.fields) {
+    if (f.type === "loglist") {
+      out[f.key] = logRows;
+      continue;
+    }
     let v: any = values[f.key];
     if (f.array) {
       v = (v || "")
@@ -139,6 +150,30 @@ function StructuredResult({ data }: { data: any }) {
   );
 }
 
+// review 模块 logs 的结构化多行编辑器（每条：日期 / 动作类型 / 内容）
+function LogRowEditor({ rows, onChange }: { rows: LogRow[]; onChange: (r: LogRow[]) => void }) {
+  const update = (i: number, patch: Partial<LogRow>) =>
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const remove = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
+  const add = () => onChange([...rows, { date: "", action_type: "", content: "" }]);
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 && (
+        <p className="text-xs text-muted-foreground">暂无日志，点击下方「添加一行」开始记录。</p>
+      )}
+      {rows.map((r, i) => (
+        <div key={i} className="grid grid-cols-[88px_108px_1fr_auto] gap-2 items-start border rounded-md p-2">
+          <Input placeholder="日期" value={r.date} onChange={(e) => update(i, { date: e.target.value })} />
+          <Input placeholder="动作类型" value={r.action_type} onChange={(e) => update(i, { action_type: e.target.value })} />
+          <Input placeholder="内容" value={r.content} onChange={(e) => update(i, { content: e.target.value })} />
+          <Button variant="ghost" size="sm" type="button" onClick={() => remove(i)} aria-label="删除">✕</Button>
+        </div>
+      ))}
+      <Button variant="outline" size="sm" type="button" onClick={add}>＋ 添加一行</Button>
+    </div>
+  );
+}
+
 export default function ModulePage({ params }: { params: { slug: string } }) {
   const navItem = findNavItem(params.slug);
   const config = getModuleConfig(params.slug);
@@ -204,6 +239,8 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  // review 模块的 logs 为结构化多行（array<LogRow>）
+  const [logRows, setLogRows] = useState<LogRow[]>([]);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -236,7 +273,11 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
   const setValue = (key: string, val: string) =>
     setValues((prev) => ({ ...prev, [key]: val }));
 
-  const missing = config.fields.find((f) => f.required && !values[f.key]?.trim());
+  const missing = config.fields.find((f) => {
+    if (!f.required) return false;
+    if (f.type === "loglist") return logRows.length === 0;
+    return !values[f.key]?.trim();
+  });
 
   const run = async () => {
     if (missing) {
@@ -250,7 +291,7 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
       // 与九宫格 / 项目汇总库(classify) 完全一致：前端**直连 AI 端具体工具路由**，
       // 携带 NextAuth Cookie；请求体为该工具专属的结构化 Input（字段见 registry），
       // 由 AI 端持 DEEPSEEK_API_KEY 调大模型并返回结构化结果。母舰不持 Key、不直连大模型。
-      const body = buildInput(config, values);
+      const body = buildInput(config, values, logRows);
       const AI_BASE = process.env.NEXT_PUBLIC_API_URL || "http://192.168.1.75:8001";
       const res = await fetch(`${AI_BASE}/api/ai/${config.route}`, {
         method: "POST",
@@ -349,7 +390,9 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
                   {f.label}
                   {f.required && <span className="text-red-500 ml-0.5">*</span>}
                 </Label>
-                {f.type === "textarea" ? (
+                {f.type === "loglist" ? (
+                  <LogRowEditor rows={logRows} onChange={setLogRows} />
+                ) : f.type === "textarea" ? (
                   <Textarea
                     id={f.key}
                     rows={f.rows || 3}

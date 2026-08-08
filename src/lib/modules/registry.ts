@@ -14,7 +14,7 @@
  * 走各自独立的定制页面（module/<slug>/page.tsx 优先级高于 [slug]）。
  */
 
-export type FieldType = "text" | "textarea" | "select";
+export type FieldType = "text" | "textarea" | "select" | "loglist";
 
 export interface ModuleField {
   key: string;
@@ -189,7 +189,7 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
       { key: "project_name", label: "项目名称", type: "text", placeholder: "项目名", required: true },
       { key: "stage", label: "当前 SSM 阶段", type: "select", options: STAGE_OPTS, required: true, integer: true },
       { key: "unmet_conditions", label: "未满足的成交条件（每行一条）", type: "textarea", rows: 4, placeholder: "例：\n预算未批复\n决策人未对齐", required: true, array: true },
-      { key: "logs", label: "行为日志（每行一条）", type: "textarea", rows: 6, placeholder: "例：\n[周一 拜访] 与 IT 总监对齐需求\n[周三 邮件] 发送方案初稿", required: true, array: true },
+      { key: "logs", label: "行为日志（每条一行：日期 / 动作类型 / 内容）", type: "loglist", rows: 6, placeholder: "", required: true },
     ],
   },
 };
