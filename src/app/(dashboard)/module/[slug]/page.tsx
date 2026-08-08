@@ -17,7 +17,6 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { findNavItem } from "@/lib/constants";
 import { getModuleConfig, type ModuleConfig, type ModuleField } from "@/lib/modules/registry";
-import { BUILTIN_PROMPTS, fillTemplate } from "@/lib/ai/builtin-prompts";
 import { Markdown } from "@/components/markdown";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -46,25 +45,98 @@ interface ProjectRow {
 // 根据字段 key 从项目对象取值（用于「从项目载入」自动填充）
 function autofillValue(field: ModuleField, p: ProjectRow): string {
   switch (field.key) {
-    case "pain":
+    case "customer_name":
+    case "customer":
+      return p.customer ?? "";
+    case "core_pain":
+    case "base_pain":
       return p.pain ?? "";
-    case "product":
-    case "capability":
+    case "our_product":
       return p.products ?? "";
     case "industry":
       return p.industry ?? "";
-    case "customer":
-      return p.customer ?? "";
     case "name":
-    case "project":
+    case "project_name":
       return p.name ?? "";
     case "stage":
       return p.stage ?? "";
-    case "current":
-      return `客户：${p.customer || ""}，行业：${p.industry || ""}，阶段：${p.stage || ""}`;
     default:
       return "";
   }
+}
+
+// 将表单值组装为后端工具专属的 Input（数组按行拆分、整数转换、空可选字段置 null）
+function buildInput(config: ModuleConfig, values: Record<string, string>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const f of config.fields) {
+    let v: any = values[f.key];
+    if (f.array) {
+      v = (v || "")
+        .split("\n")
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+    } else if (f.integer) {
+      const n = parseInt(v, 10);
+      v = isNaN(n) ? 0 : n;
+    } else {
+      v = v == null || v === "" ? null : v;
+    }
+    out[f.key] = v;
+  }
+  return out;
+}
+
+function humanize(k: string): string {
+  return k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// 通用结构化结果渲染：字符串走 Markdown，数组走列表，其余走 JSON
+function StructuredResult({ data }: { data: any }) {
+  if (!data || typeof data !== "object") {
+    return (
+      <pre className="text-xs bg-gray-50 border rounded-lg p-4 whitespace-pre-wrap">
+        {String(data)}
+      </pre>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      {Object.entries(data).map(([k, v]) => (
+        <div key={k}>
+          <h3 className="text-sm font-semibold text-slate-700 mb-1">{humanize(k)}</h3>
+          {typeof v === "string" ? (
+            <div className="text-sm leading-relaxed">
+              <Markdown content={v} />
+            </div>
+          ) : Array.isArray(v) ? (
+            v.length === 0 ? (
+              <p className="text-xs text-muted-foreground">（无）</p>
+            ) : (
+              <ul className="list-disc pl-5 space-y-1 text-sm leading-relaxed">
+                {v.map((item, i) =>
+                  typeof item === "string" ? (
+                    <li key={i}>
+                      <Markdown content={item} />
+                    </li>
+                  ) : (
+                    <li key={i}>
+                      <pre className="text-xs bg-gray-50 border rounded p-2 whitespace-pre-wrap">
+                        {JSON.stringify(item, null, 2)}
+                      </pre>
+                    </li>
+                  ),
+                )}
+              </ul>
+            )
+          ) : (
+            <pre className="text-xs bg-gray-50 border rounded-lg p-4 whitespace-pre-wrap">
+              {JSON.stringify(v, null, 2)}
+            </pre>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function ModulePage({ params }: { params: { slug: string } }) {
@@ -106,16 +178,13 @@ function Placeholder({ item }: { item: NonNullable<ReturnType<typeof findNavItem
           </div>
           <p className="text-sm leading-relaxed text-muted-foreground">
             该模块已纳入「白起 SSE · 十大销售辅助工具」规划，正在开发中。
-            当前阶段仅 <span className="font-medium text-foreground">九宫图生成器</span> 已完整上线。
+            当前阶段已上线的「表单 → AI 端具体工具路由」模块请见左侧导航。
           </p>
           <div className="flex gap-3 pt-2">
             <Button asChild variant="default">
-              <a href="/nine-grid">
-                <ArrowLeft className="mr-2 h-4 w-4" /> 前往九宫图生成器
+              <a href="/">
+                <ArrowLeft className="mr-2 h-4 w-4" /> 返回项目总览
               </a>
-            </Button>
-            <Button asChild variant="outline">
-              <a href="/">返回项目总览</a>
             </Button>
           </div>
         </CardContent>
@@ -132,7 +201,7 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const [selectedProject, setSelectedProject] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState("");
+  const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -176,28 +245,18 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
     }
     setSubmitting(true);
     setError("");
-    setResult("");
+    setResult(null);
     try {
-      // 与九宫格 / 项目汇总库(classify) 完全一致：前端**直连 AI 端**，携带 NextAuth Cookie，
-      // 由 AI 端持 DEEPSEEK_API_KEY 调大模型。母舰不再经 /api/ai 网关中转，密钥绝不落母舰。
-      const builtin = BUILTIN_PROMPTS[config.slug];
-      if (!builtin) throw new Error(`未找到模块「${config.slug}」的提示词配置`);
-
-      const system_prompt = builtin.systemPrompt;
-      const user_prompt = fillTemplate(builtin.userPromptTemplate, values as Record<string, string>);
-
+      // 与九宫格 / 项目汇总库(classify) 完全一致：前端**直连 AI 端具体工具路由**，
+      // 携带 NextAuth Cookie；请求体为该工具专属的结构化 Input（字段见 registry），
+      // 由 AI 端持 DEEPSEEK_API_KEY 调大模型并返回结构化结果。母舰不持 Key、不直连大模型。
+      const body = buildInput(config, values);
       const AI_BASE = process.env.NEXT_PUBLIC_API_URL || "http://192.168.1.75:8001";
-      const res = await fetch(`${AI_BASE}/api/ai/generate`, {
+      const res = await fetch(`${AI_BASE}/api/ai/${config.route}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include", // 携带 NextAuth Cookie，AI 端用 NEXTAUTH_SECRET 解密鉴权（与九宫格同源）
-        body: JSON.stringify({
-          system_prompt,
-          user_prompt,
-          model: builtin.modelConfig.model,
-          temperature: builtin.modelConfig.temperature,
-          max_tokens: builtin.modelConfig.maxTokens,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
@@ -213,7 +272,7 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
       }
 
       const data = await res.json();
-      setResult(data?.content || "");
+      setResult(data);
     } catch (e: any) {
       setError(e?.message || "生成失败");
     } finally {
@@ -223,7 +282,13 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(result);
+      const text =
+        result == null
+          ? ""
+          : typeof result === "string"
+            ? result
+            : JSON.stringify(result, null, 2);
+      await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -346,15 +411,14 @@ function ModuleRunner({ config }: { config: ModuleConfig }) {
                 填写左侧信息后点击「生成」，结果将显示在此处
               </div>
             )}
-            {result && config.output === "markdown" && (
+            {result && (
               <div className="max-h-[70vh] overflow-auto">
-                <Markdown content={result} />
+                {typeof result === "string" ? (
+                  <Markdown content={result} />
+                ) : (
+                  <StructuredResult data={result} />
+                )}
               </div>
-            )}
-            {result && config.output !== "markdown" && (
-              <pre className="whitespace-pre-wrap bg-gray-50 border rounded-lg p-4 text-sm leading-relaxed max-h-[70vh] overflow-auto">
-                {result}
-              </pre>
             )}
           </CardContent>
         </Card>

@@ -1,8 +1,15 @@
 /**
  * 模块 UI 注册表
  * ---------------------------------------------------------------
- * 通用模块页 module/[slug] 依据本表渲染「表单 → /api/ai → Markdown」界面。
- * 新增一个标准「表单→AI」模块 = 在此加一条配置（无需新建页面文件）。
+ * 通用模块页 module/[slug] 依据本表渲染「表单 → 后端具体工具路由 → 结构化结果」界面。
+ *
+ * 关键约定（与 AI 端 sse-ai-backend 对齐）：
+ *  - 每个模块对应 AI 端一个**按工具精准划分**的路由（config.route），如 "value-prop"。
+ *  - 表单字段 key 与后端对应 Input schema 字段**一一对应**（不再在浏览器组装提示词，
+ *    也不经母舰 /api/ai 网关）。
+ *  - 后端返回工具专属的**结构化对象**（如 value-prop → {elevator_pitch, ...}），
+ *    由前端 StructuredResult 通用渲染。
+ *
  * 交互复杂的模块（关系图谱 / 战情Lab / 本体成长 / 报表库 / 历史 / 设置）
  * 走各自独立的定制页面（module/<slug>/page.tsx 优先级高于 [slug]）。
  */
@@ -18,6 +25,10 @@ export interface ModuleField {
   rows?: number;
   helpText?: string;
   options?: { value: string; label: string }[];
+  /** 文本域按行拆分为数组传给后端（如 review 的 logs / unmet_conditions） */
+  array?: boolean;
+  /** 转为整数传给后端（如 review.stage） */
+  integer?: boolean;
 }
 
 export interface ModuleConfig {
@@ -26,8 +37,9 @@ export interface ModuleConfig {
   icon: string; // lucide 图标名
   description: string;
   category: string;
+  /** AI 端工具路由段，如 "value-prop"（实际请求 /api/ai/value-prop） */
+  route: string;
   fields: ModuleField[];
-  output: "markdown" | "text" | "json";
   /** 是否显示「从项目汇总库载入」选择器，自动填充相关字段 */
   projectContext?: boolean;
   intro?: string;
@@ -35,7 +47,7 @@ export interface ModuleConfig {
 
 import { SSM_STAGE_OPTIONS } from "../constants";
 
-const STAGE_OPTS = SSM_STAGE_OPTIONS.map((s) => ({ value: s, label: s }));
+const STAGE_OPTS = SSM_STAGE_OPTIONS.map((s, i) => ({ value: String(i + 1), label: s }));
 
 export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
   "value-proposition": {
@@ -44,13 +56,13 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
     icon: "Gem",
     description: "基于客户痛点与方案能力，生成结构化价值主张声明",
     category: "十大销售辅助工具",
+    route: "value-prop",
     projectContext: true,
-    intro: "可先「从项目载入」自动带入痛点与方案，再生成价值主张。",
-    output: "markdown",
+    intro: "可先「从项目载入」自动带入客户与痛点，再生成价值主张。",
     fields: [
-      { key: "industry", label: "行业", type: "text", placeholder: "如：智能制造 / 金融银行", required: true },
-      { key: "pain", label: "客户核心痛点", type: "textarea", rows: 3, placeholder: "客户当前面临的关键业务挑战", required: true },
-      { key: "product", label: "我方产品 / 方案", type: "textarea", rows: 3, placeholder: "我方能提供的能力或方案", required: true },
+      { key: "customer_name", label: "客户名称", type: "text", placeholder: "如：某银行总行", required: true },
+      { key: "core_pain", label: "客户核心痛点", type: "textarea", rows: 3, placeholder: "客户当前面临的关键业务挑战", required: true },
+      { key: "our_product", label: "我方产品 / 方案", type: "textarea", rows: 3, placeholder: "我方能提供的能力或方案", required: true },
       { key: "competitor", label: "竞争对手（可选）", type: "text", placeholder: "主要竞品名称" },
     ],
   },
@@ -61,12 +73,13 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
     icon: "Telescope",
     description: "帮助客户描绘理想未来状态，建立购买愿景",
     category: "十大销售辅助工具",
+    route: "buying-vision",
     projectContext: true,
-    output: "markdown",
     fields: [
-      { key: "current", label: "当前状态画像", type: "textarea", rows: 3, placeholder: "客户现状描述", required: true },
-      { key: "goal", label: "期望目标 / 理想状态", type: "textarea", rows: 3, placeholder: "希望达成的未来状态", required: true },
-      { key: "focus", label: "决策人关注点（可选）", type: "text", placeholder: "如：成本 / 合规 / 效率" },
+      { key: "customer", label: "客户", type: "text", placeholder: "客户名称", required: true },
+      { key: "current_state", label: "当前状态画像", type: "textarea", rows: 3, placeholder: "客户现状描述", required: true },
+      { key: "desired_state", label: "期望目标 / 理想状态", type: "textarea", rows: 3, placeholder: "希望达成的未来状态", required: true },
+      { key: "our_product", label: "我方产品 / 方案", type: "textarea", rows: 3, placeholder: "我方对应产品/方案", required: true },
     ],
   },
 
@@ -76,12 +89,13 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
     icon: "Swords",
     description: "针对竞争对抗场景，给出破局策略与话术",
     category: "十大销售辅助工具",
-    output: "markdown",
+    route: "compete",
     fields: [
-      { key: "rival", label: "竞争对手", type: "text", placeholder: "竞品厂商名称", required: true },
-      { key: "rivalProd", label: "竞品产品", type: "text", placeholder: "竞品主打产品/方案" },
-      { key: "ourProd", label: "我方产品", type: "text", placeholder: "我方对应产品/方案" },
-      { key: "context", label: "竞争场景 / 背景", type: "textarea", rows: 3, placeholder: "客户场景、采购阶段、我方优劣势等" },
+      { key: "customer", label: "客户", type: "text", placeholder: "客户名称", required: true },
+      { key: "competitor_name", label: "竞争对手", type: "text", placeholder: "竞品厂商名称", required: true },
+      { key: "their_product_cons", label: "竞品短板 / 劣势", type: "textarea", rows: 3, placeholder: "竞品产品的薄弱点", required: true },
+      { key: "our_product_pros", label: "我方产品 / 优势", type: "textarea", rows: 3, placeholder: "我方对应产品及优势", required: true },
+      { key: "customer_criteria", label: "客户最看重", type: "text", placeholder: "如：总拥有成本 / 实施速度", required: true },
     ],
   },
 
@@ -91,16 +105,13 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
     icon: "Scale",
     description: "系统化对比我方与竞品，提炼差异化卖点",
     category: "十大销售辅助工具",
-    output: "markdown",
+    route: "diff-analysis",
+    intro: "⚠️ 后端路由 /api/ai/diff-analysis 当前尚未部署，提交后将返回 404，待后端补齐该工具。",
     fields: [
-      { key: "ourName", label: "我方名称", type: "text", placeholder: "我方 / 方案名" },
-      { key: "ourPros", label: "我方优势", type: "textarea", rows: 2, placeholder: "我方核心优势" },
-      { key: "ourCons", label: "我方劣势", type: "textarea", rows: 2, placeholder: "我方相对短板" },
-      { key: "compName", label: "竞品名称", type: "text", placeholder: "竞品 / 方案名" },
-      { key: "compPros", label: "竞品优势", type: "textarea", rows: 2, placeholder: "竞品核心优势" },
-      { key: "compCons", label: "竞品劣势", type: "textarea", rows: 2, placeholder: "竞品短板" },
-      { key: "criteria", label: "客户最看重（可选）", type: "text", placeholder: "如：总拥有成本 / 实施速度" },
-      { key: "context", label: "场景（可选）", type: "textarea", rows: 2, placeholder: "应用行业 / 客户类型" },
+      { key: "customer_name", label: "客户名称", type: "text", placeholder: "客户名称", required: true },
+      { key: "our_product", label: "我方产品 / 方案", type: "textarea", rows: 3, placeholder: "我方对应产品/方案", required: true },
+      { key: "competitor_name", label: "竞品名称", type: "text", placeholder: "竞品 / 方案名", required: true },
+      { key: "customer_criteria", label: "客户最看重", type: "text", placeholder: "如：总拥有成本 / 实施速度", required: true },
     ],
   },
 
@@ -110,12 +121,14 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
     icon: "Puzzle",
     description: "基于痛点与能力，生成分层解决方案架构",
     category: "十大销售辅助工具",
+    route: "solution",
     projectContext: true,
-    output: "markdown",
     fields: [
-      { key: "pain", label: "客户痛点", type: "textarea", rows: 3, placeholder: "需要解决的业务挑战", required: true },
-      { key: "capability", label: "我方能力 / 方案", type: "textarea", rows: 3, placeholder: "我方能提供的能力", required: true },
-      { key: "cases", label: "成功案例（可选）", type: "textarea", rows: 2, placeholder: "可引用的同类客户案例" },
+      { key: "customer_name", label: "客户名称", type: "text", placeholder: "客户名称", required: true },
+      { key: "core_pain", label: "客户核心痛点", type: "textarea", rows: 3, placeholder: "需要解决的业务挑战", required: true },
+      { key: "our_product", label: "我方产品 / 方案", type: "textarea", rows: 3, placeholder: "我方能提供的能力", required: true },
+      { key: "audience", label: "目标听众 / 受众", type: "text", placeholder: "如：CIO / 业务总监", required: true },
+      { key: "duration", label: "方案周期 / 时长", type: "text", placeholder: "如：90 天试点", required: true },
     ],
   },
 
@@ -123,21 +136,12 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
     slug: "key-people",
     name: "关键人物",
     icon: "Users",
-    description: "梳理经济买家 / 教练 / 决策者等角色并给出策略",
+    description: "基于行业与目标角色，给出关键人痛点、业务目标与切入话术",
     category: "十大销售辅助工具",
-    projectContext: true,
-    output: "markdown",
+    route: "key-people",
     fields: [
-      { key: "customer", label: "客户", type: "text", placeholder: "客户名称", required: true },
-      { key: "industry", label: "行业", type: "text", placeholder: "客户行业" },
-      { key: "economicBuyer", label: "经济买家", type: "text", placeholder: "握有预算签字权的人" },
-      { key: "userBuyer", label: "用户买家", type: "text", placeholder: "实际使用方" },
-      { key: "technicalBuyer", label: "技术买家", type: "text", placeholder: "技术评估方" },
-      { key: "coach", label: "教练", type: "text", placeholder: "内部支持/指导者" },
-      { key: "evaluator", label: "评估者", type: "text", placeholder: "方案评估人" },
-      { key: "sponsor", label: "赞助者", type: "text", placeholder: "高层赞助人" },
-      { key: "decisionMaker", label: "决策者", type: "text", placeholder: "最终拍板人" },
-      { key: "blocker", label: "阻碍者", type: "text", placeholder: "可能反对的人" },
+      { key: "industry", label: "行业", type: "text", placeholder: "客户行业", required: true },
+      { key: "target_role", label: "目标关键人角色", type: "text", placeholder: "如：CFO / 技术总监", required: true },
     ],
   },
 
@@ -147,12 +151,14 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
     icon: "Link",
     description: "分析痛点传导路径，找到最佳切入点与话术",
     category: "十大销售辅助工具",
+    route: "pain-chain",
     projectContext: true,
-    output: "markdown",
     fields: [
       { key: "customer", label: "客户", type: "text", placeholder: "客户名称", required: true },
-      { key: "industry", label: "行业", type: "text", placeholder: "客户行业" },
-      { key: "pain", label: "核心痛点", type: "textarea", rows: 3, placeholder: "客户当前最痛的问题", required: true },
+      { key: "base_pain", label: "基础痛点", type: "textarea", rows: 3, placeholder: "客户当前最痛的问题", required: true },
+      { key: "base_role", label: "基础角色", type: "text", placeholder: "痛点的关联角色", required: true },
+      { key: "target_role", label: "目标角色", type: "text", placeholder: "希望影响的决策者角色", required: true },
+      { key: "our_product", label: "我方产品 / 方案", type: "textarea", rows: 3, placeholder: "我方对应产品/方案", required: true },
     ],
   },
 
@@ -160,13 +166,14 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
     slug: "business-impact",
     name: "生意影响",
     icon: "TrendingUp",
-    description: "评估我方能力与客户业务举措（BI）的契合度",
+    description: "评估我方能力与客户业务举措（BI）的契合度与财务收益",
     category: "十大销售辅助工具",
-    output: "markdown",
+    route: "biz-impact",
     fields: [
-      { key: "initiative", label: "客户业务举措（BI）", type: "textarea", rows: 3, placeholder: "客户今年的重点业务方向", required: true },
-      { key: "capability", label: "我方能力 / 方案", type: "textarea", rows: 3, placeholder: "我方对应的能力或方案", required: true },
-      { key: "context", label: "背景（可选）", type: "textarea", rows: 2, placeholder: "行业 / 决策背景" },
+      { key: "customer", label: "客户", type: "text", placeholder: "客户名称", required: true },
+      { key: "financial_focus", label: "财务关注点", type: "text", placeholder: "如：降本 / 增收 / 合规", required: true },
+      { key: "current_wasted_cost", label: "当前浪费 / 损失成本", type: "textarea", rows: 3, placeholder: "客户当前的隐性成本或损失", required: true },
+      { key: "our_expected_roi", label: "我方预期 ROI / 收益", type: "textarea", rows: 3, placeholder: "我方方案可带来的收益", required: true },
     ],
   },
 
@@ -176,15 +183,13 @@ export const MODULE_REGISTRY: Record<string, ModuleConfig> = {
     icon: "Sparkles",
     description: "基于行为日志与阶段，给出师傅式工作点评",
     category: "核心",
+    route: "review",
     projectContext: true,
-    output: "markdown",
     fields: [
-      { key: "project", label: "项目名称", type: "text", placeholder: "项目名", required: true },
-      { key: "customer", label: "客户", type: "text", placeholder: "客户名称", required: true },
-      { key: "stage", label: "当前 SSM 阶段", type: "select", options: STAGE_OPTS, required: true },
-      { key: "industry", label: "行业", type: "text", placeholder: "客户行业" },
-      { key: "period", label: "点评时间段", type: "text", placeholder: "如：2026 Q3" },
-      { key: "logs", label: "行为日志（每行一条）", type: "textarea", rows: 6, placeholder: "例：\n[周一 拜访] 与 IT 总监对齐需求\n[周三 邮件] 发送方案初稿", required: true },
+      { key: "project_name", label: "项目名称", type: "text", placeholder: "项目名", required: true },
+      { key: "stage", label: "当前 SSM 阶段", type: "select", options: STAGE_OPTS, required: true, integer: true },
+      { key: "unmet_conditions", label: "未满足的成交条件（每行一条）", type: "textarea", rows: 4, placeholder: "例：\n预算未批复\n决策人未对齐", required: true, array: true },
+      { key: "logs", label: "行为日志（每行一条）", type: "textarea", rows: 6, placeholder: "例：\n[周一 拜访] 与 IT 总监对齐需求\n[周三 邮件] 发送方案初稿", required: true, array: true },
     ],
   },
 };
